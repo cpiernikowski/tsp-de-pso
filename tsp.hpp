@@ -17,6 +17,9 @@ using distance_t = double;
 using point_t = std::pair<int, int>;
 using city_index_t = int;
 
+static constexpr bool CACHE_THE_COST = true;
+static constexpr bool DONT_CACHE_THE_COST = false;
+
 namespace util {
     auto euclidean_distance(point_t first, point_t second) {
         return distance_t{std::hypot(second.first - first.first, second.second - first.second)};
@@ -106,12 +109,13 @@ public:
     }
 };
 
-template <typename T>
+template <typename T, typename Derived, bool should_cache = CACHE_THE_COST>
 class base_TSP_solution_set {
     using value_type = T;
-
 protected:
     std::unique_ptr<value_type[]> values;
+    mutable bool cached_cost_up_to_date = false;
+    mutable distance_t cost_cache;
 
     base_TSP_solution_set(std::size_t n_chromosomes)
     : values(std::make_unique<value_type[]>(n_chromosomes)) {
@@ -122,17 +126,44 @@ protected:
     }
 
     base_TSP_solution_set& operator=(base_TSP_solution_set&& other) {
+        cached_cost_up_to_date = false;
         values = std::move(other.values);
         return *this;
     }
 
 public:
-    void write_copy_of(const base_TSP_solution_set& other, std::size_t n_chromosomes) {
-        std::copy_n(other.values.get(), n_chromosomes, values.get()); // nie moze byc zaimplementowane jako op= bo potrzebuje dodatkowego argumentu (n_chromosomes)
+    distance_t total_cost(const TSP_Graph& graph) const {
+        if constexpr (should_cache) {
+            if (cached_cost_up_to_date)
+                return cost_cache;
+
+            static_assert(
+                std::is_same_v<
+                    distance_t,
+                    decltype(std::declval<const Derived&>()._compute_cost(std::declval<const TSP_Graph&>()))
+                >,
+                "Derived class must implement: distance_t _compute_cost(const TSP_Graph&) const" // metoda _compute_cost nie powinna być wywoływana nigdzie poza tą metodą
+            );
+
+            cost_cache = static_cast<const Derived&>(*this)._compute_cost(graph);
+            cached_cost_up_to_date = true;
+            return cost_cache;
+        }
+        else {
+            return static_cast<const Derived&>(*this)._compute_cost(graph);
+        }
     }
 
-    value_type& at(index_t i) noexcept {
-        return values[i];
+    const T* get_values() const noexcept {
+        return values.get();
+    }
+
+    template <typename OtherDerived, bool OtherCache>
+    void write_copy_of(const base_TSP_solution_set<T, OtherDerived, OtherCache>& other, std::size_t n_chromosomes) {
+        if constexpr (should_cache) {
+            cached_cost_up_to_date = false; // reset cache tylko jeśli this->_should_cache
+        }
+        std::copy_n(other.get_values(), n_chromosomes, values.get());
     }
 
     const value_type& at(index_t i) const noexcept {
@@ -140,6 +171,7 @@ public:
     }
 
     void set(index_t i, value_type t) noexcept {
+        cached_cost_up_to_date = false;
         values[i] = t;
     }
 
@@ -158,12 +190,12 @@ public:
     }
 };
 
-class TSP_solution_set : public base_TSP_solution_set<city_index_t> {
+class TSP_solution_set : public base_TSP_solution_set<city_index_t, TSP_solution_set> {
 public:
     TSP_solution_set(std::size_t n) : base_TSP_solution_set(n) {
     }
 
-    distance_t total_cost(const TSP_Graph& graph) const {
+    distance_t _compute_cost(const TSP_Graph& graph) const {
         distance_t out{};
         const auto n = graph.n_cities();
 
@@ -180,6 +212,7 @@ public:
         const auto values_end = std::next(values.get(), n_chromosomes);
         std::iota(values.get(), values_end, 0);
         std::shuffle(values.get(), values_end, gen);
+        assert(!cached_cost_up_to_date); // ta metoda raczej zawsze będzie używana tuż po inicjalizacji osobnika, więc ta linijka nie powinna być potrzebna, ale jednak dla pewności daję assert'a, bo nie chcę ustawiać tej zmiennej na false za każdym razem
     }
 };
 

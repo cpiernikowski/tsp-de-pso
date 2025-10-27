@@ -1,7 +1,6 @@
 #include "tsp.hpp"
 #include <iostream>
 #include <iomanip>
-#define TSP_DE_POPULATION_ENABLE_EVOLUTION_SAMPLE_APPROACH
 
 struct DE_params {
     static constexpr double NP = 10.0;
@@ -9,20 +8,30 @@ struct DE_params {
     static constexpr double F = 0.8; // typowe wartości z wikipedii
 };
 
-class DE_continous_TSP_solution_set : public base_TSP_solution_set<double> {
+template<bool> class t_DE_continous_TSP_solution_set;
+
+using Trial_vector_type_DE_continous_TSP_solution_set = t_DE_continous_TSP_solution_set<DONT_CACHE_THE_COST>;
+// ten typ jest taki sam jak DE_continous_TSP_solution_set, ale bez cache'owania - dla trial vector'a jest to totalnie niepotrzebne, bo za każdym razem gdy obliczany jest koszt, wektor jest inny (cache'owanie nigdy nie wystąpi)
+
+using DE_continous_TSP_solution_set = t_DE_continous_TSP_solution_set<CACHE_THE_COST>; // defaultowo cache'ujemy - jest to na 100% ulepszenie, nie trzeba testować. brak cache'owania tylko w typie dla trial vectora (powód wyżej)
+
+template <bool should_cache = CACHE_THE_COST>
+class t_DE_continous_TSP_solution_set : public base_TSP_solution_set<double, t_DE_continous_TSP_solution_set<should_cache>, should_cache> {
+    using _my_base = base_TSP_solution_set<double, t_DE_continous_TSP_solution_set<should_cache>, should_cache>;
 public:
-    DE_continous_TSP_solution_set(std::size_t n_chromosomes) : base_TSP_solution_set(n_chromosomes) {
+    t_DE_continous_TSP_solution_set(std::size_t n_chromosomes) : _my_base(n_chromosomes) {
     }
 
     void generate_random(std::mt19937& gen, std::size_t n_chromosomes) {
         std::uniform_real_distribution<double> dis(0.0, 1.0);
         for (int i = 0; i < n_chromosomes; ++i) {
-            values[i] = dis(gen); // literatura twierdzi, że nie trzeba sprawdzać i zmieniać duplikatów - przy sortowaniu podczas dyskretyzacji duplikaty nie dadzą problemów, szczególnie że prawie nigdy nie wystąpią
+            this->values[i] = dis(gen); // literatura twierdzi, że nie trzeba sprawdzać i zmieniać duplikatów - przy sortowaniu podczas dyskretyzacji duplikaty nie dadzą problemów, szczególnie że prawie nigdy nie wystąpią
         }
+        assert(!this->cached_cost_up_to_date);
     }
 
-    distance_t total_cost(const TSP_Graph& graph) const {
-        return discretize(graph.n_cities()).total_cost(graph);
+    distance_t _compute_cost(const TSP_Graph& graph) const {
+        return discretize(graph.n_cities())._compute_cost(graph);
     }
 
     TSP_solution_set discretize(std::size_t n_chromosomes) const {
@@ -32,7 +41,7 @@ public:
         std::unique_ptr<my_dict[]> val_index_map = std::make_unique<my_dict[]>(n_chromosomes);
 
         for (index_t i = 0; i < n_chromosomes; ++i) {
-            val_index_map[i] = {values[i], i};
+            val_index_map[i] = {this->values[i], i};
         }
 
         auto my_dict_comparator = [](const my_dict& a, const my_dict& b) {
@@ -52,10 +61,8 @@ public:
 class DE_population {
     DE_continous_TSP_solution_set* pop; // nie da się użyć unique_ptr - przy inicjalizacji standard przewiduje tylko domyślną konstrukcję, co jest niemożliwe w tym przypadku - typ DE_continous_TSP_solution_set nie ma domyślnego konstruktora
     std::size_t n;
-    DE_continous_TSP_solution_set trial;
-    #ifdef TSP_DE_POPULATION_ENABLE_EVOLUTION_SAMPLE_APPROACH
+    Trial_vector_type_DE_continous_TSP_solution_set trial;
     std::unique_ptr<index_t[]> array_indexes;
-    #endif
     const TSP_Graph& graph;
 
     // dystrybucje używane w funkcji `evolve` - nie ma sensu konstruować je za każdym wywołaniem tej funkcji,
@@ -78,9 +85,7 @@ public:
             new(pop + i) DE_continous_TSP_solution_set(n_indivi()); // zauważona optymalizacja to implementacji: w programie każdy osobnik będzie miał te same n - nie ma sensu żeby każdy z nich to zapisywał
         }
 
-        #ifdef TSP_DE_POPULATION_ENABLE_EVOLUTION_SAMPLE_APPROACH
         std::iota(array_indexes.get(), std::next(array_indexes.get(), n), 0);
-        #endif
     }
 
     std::size_t n_indivi() const noexcept {
@@ -162,7 +167,8 @@ public:
 
 
 int main() {
-    // cacheowanie wyniku total cost
+    // oddzielna klasa dla trial vectora - przeanalizuj jakie rzeczy się z nim dzieja, jakie operacje na nim są przeprowadzane i nastepnie napisz taką klase
+    // nie bedzie mogl dziedziczyć po bazie, chyba że zrobisz cos takiego, ze dasz if constexpr(should_cache) to wtedy moze, to by bylo git
     // poczytaj w paperach jak jest stosowana ruletka/torunament
     // bo zcegos mi tu brakuje wlasnie jeszcze - gdzie to powinno byc?
     const TSP_Graph graph(10, "./tsp_example1.txt");
