@@ -39,19 +39,19 @@ namespace util {
         T& at(index_t i, index_t j) noexcept {
             const auto idx = i * n + j;
             assert(idx < n * n);
-            return p[i * n + j];
+            return p[idx];
         }
 
         const T& at(index_t i, index_t j) const noexcept {
             const auto idx = i * n + j;
             assert(idx < n * n);
-            return p[i * n + j];
+            return p[idx];
         }
 
         void set(index_t i, index_t j, const T& t) noexcept {
             const auto idx = i * n + j;
             assert(idx < n * n);
-            p[i * n + j] = t;
+            p[idx] = t;
         }
     };
 }
@@ -126,7 +126,9 @@ protected:
     }
 
     base_TSP_solution_set& operator=(base_TSP_solution_set&& other) {
-        cached_cost_up_to_date = false;
+        if constexpr (should_cache) {
+            cached_cost_up_to_date = false;
+        }
         values = std::move(other.values);
         return *this;
     }
@@ -154,16 +156,16 @@ public:
         }
     }
 
-    const T* get_values() const noexcept {
+    const T* get_values_raw_ptr() const noexcept {
         return values.get();
     }
 
     template <typename OtherDerived, bool OtherCache>
     void write_copy_of(const base_TSP_solution_set<T, OtherDerived, OtherCache>& other, std::size_t n_chromosomes) {
         if constexpr (should_cache) {
-            cached_cost_up_to_date = false; // reset cache tylko jeśli this->_should_cache
+            cached_cost_up_to_date = false;
         }
-        std::copy_n(other.get_values(), n_chromosomes, values.get());
+        std::copy_n(other.get_values_raw_ptr(), n_chromosomes, values.get());
     }
 
     const value_type& at(index_t i) const noexcept {
@@ -171,7 +173,9 @@ public:
     }
 
     void set(index_t i, value_type t) noexcept {
-        cached_cost_up_to_date = false;
+        if constexpr (should_cache) {
+            cached_cost_up_to_date = false;
+        }
         values[i] = t;
     }
 
@@ -184,9 +188,7 @@ public:
             os << values[i] << ", ";
         }
 
-        os << values[end_idx] << ']';
-
-        os << tail;
+        os << values[end_idx] << ']' << tail;
     }
 };
 

@@ -59,10 +59,10 @@ public:
 };
 
 class DE_population {
-    DE_continous_TSP_solution_set* pop; // nie da się użyć unique_ptr - przy inicjalizacji standard przewiduje tylko domyślną konstrukcję, co jest niemożliwe w tym przypadku - typ DE_continous_TSP_solution_set nie ma domyślnego konstruktora
+    DE_continous_TSP_solution_set* pop; // nie da się użyć unique_ptr - przy inicjalizacji unique_ptr<T[]> standard przewiduje tylko domyślną konstrukcję elementów w tablicy, co jest niemożliwe w tym przypadku - typ DE_continous_TSP_solution_set nie ma domyślnego konstruktora
     std::size_t n;
     Trial_vector_type_DE_continous_TSP_solution_set trial;
-    std::unique_ptr<index_t[]> array_indexes;
+    //std::unique_ptr<index_t[]> array_indexes; // zakres 0..n, używany w funkcji evolve do losowania trzech indexów osobników którzy będą użyci do krosowania
     const TSP_Graph& graph;
 
     // dystrybucje używane w funkcji `evolve` - nie ma sensu konstruować je za każdym wywołaniem tej funkcji,
@@ -70,23 +70,29 @@ class DE_population {
     // musiałaby mieć taką samą długość chromosomu każdego osobnika. to ogranicznie raczej nie przeszkadzałoby w tym co chcę osiągnąć tym programem, ale po co sobie zamykać furtki na przyszłość
     std::uniform_real_distribution<double> evolve_distrib_r;
     std::uniform_int_distribution<index_t> evolve_distrib_chromosome_index;
+    std::uniform_int_distribution<index_t> evolve_distrib_indivi_index;
 
 public:
     DE_population(std::size_t n, const TSP_Graph& graph_ref)
     : n{n}
     , pop(static_cast<decltype(pop)>(operator new[](n * sizeof(DE_continous_TSP_solution_set))))
     , trial(graph_ref.n_cities())
-    , array_indexes(std::make_unique<index_t[]>(n))
+    //, array_indexes(std::make_unique<index_t[]>(n))
     , graph{graph_ref}
     , evolve_distrib_r(0.0, 1.0)
-    , evolve_distrib_chromosome_index(0, n_indivi())
+    , evolve_distrib_chromosome_index(0, n_indivi() - 1)
+    , evolve_distrib_indivi_index(0, n - 1)
     {
         for (index_t i = 0; i < n; ++i) {
             new(pop + i) DE_continous_TSP_solution_set(n_indivi()); // zauważona optymalizacja to implementacji: w programie każdy osobnik będzie miał te same n - nie ma sensu żeby każdy z nich to zapisywał
         }
-
-        std::iota(array_indexes.get(), std::next(array_indexes.get(), n), 0);
     }
+
+    // niepotrzebne - wolę usunąć
+    DE_population(const DE_population&) = delete;
+    DE_population& operator=(const DE_population&) = delete;
+    DE_population(DE_population&&) = delete;
+    DE_population& operator=(DE_population&&) = delete;
 
     std::size_t n_indivi() const noexcept {
         return graph.n_cities();
@@ -128,17 +134,21 @@ public:
         for (index_t i = 0; i < n; ++i) {
             pop[i].~DE_continous_TSP_solution_set(); // nie jest trywialnie destruktowalny - ma w sobie unique_ptr
         }
-        delete[] pop;
+        operator delete[](pop);
     }
 
     void evolve(std::mt19937& gen) {
         for (index_t i = 0; i < n; ++i) {
-            index_t random_idxes[3];
-            std::sample(array_indexes.get(), std::next(array_indexes.get(), n), random_idxes, sizeof(random_idxes) / (sizeof(*random_idxes)), gen);
+            index_t idx_a, idx_b, idx_c;
+            //std::sample(array_indexes.get(), std::next(array_indexes.get(), n), random_idxes, sizeof(random_idxes) / (sizeof(*random_idxes)), gen);
 
-            const auto& a = pop[random_idxes[0]];
-            const auto& b = pop[random_idxes[1]];
-            const auto& c = pop[random_idxes[2]];
+            do idx_a = evolve_distrib_indivi_index(gen); while (idx_a == i);
+            do idx_b = evolve_distrib_indivi_index(gen); while (idx_b == i || idx_b == idx_a);
+            do idx_c = evolve_distrib_indivi_index(gen); while (idx_c == i || idx_c == idx_a || idx_c == idx_b);
+
+            const auto& a = pop[idx_a];
+            const auto& b = pop[idx_b];
+            const auto& c = pop[idx_c];
 
             auto& x = pop[i];
 
@@ -167,10 +177,9 @@ public:
 
 
 int main() {
-    // oddzielna klasa dla trial vectora - przeanalizuj jakie rzeczy się z nim dzieja, jakie operacje na nim są przeprowadzane i nastepnie napisz taką klase
-    // nie bedzie mogl dziedziczyć po bazie, chyba że zrobisz cos takiego, ze dasz if constexpr(should_cache) to wtedy moze, to by bylo git
     // poczytaj w paperach jak jest stosowana ruletka/torunament
     // bo zcegos mi tu brakuje wlasnie jeszcze - gdzie to powinno byc?
+    // poczytac o innych formach dyskretyzacji, bardziej wydajniejszych (radix sort?)
     const TSP_Graph graph(10, "./tsp_example1.txt");
     std::random_device rd;
     std::mt19937 mt(rd());
@@ -184,8 +193,6 @@ int main() {
         pop.evolve(mt);
 
     std::cout << "\n\n best cost: " << pop.best().cost;
-
-    
 
     return EXIT_SUCCESS;
 }
