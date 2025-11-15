@@ -13,7 +13,7 @@
 #include <iostream>
 
 using index_t = std::size_t;
-using distance_t = double;
+using distance_t = int; // nie double! zgodność z TSPLIB aby móc opierać się na wynikach z niej
 using point_t = std::pair<int, int>;
 using city_index_t = int;
 
@@ -21,8 +21,8 @@ static constexpr bool CACHE_THE_COST = true;
 static constexpr bool DONT_CACHE_THE_COST = false;
 
 namespace util {
-    auto euclidean_distance(point_t first, point_t second) {
-        return distance_t{std::hypot(second.first - first.first, second.second - first.second)};
+    distance_t euclidean_distance(const point_t& a, const point_t& b) {
+        return static_cast<distance_t>(std::round(std::hypot(b.first - a.first, b.second - a.second))); // kompatybilne z TSPLIB (stąd round)
     }
 
     template <typename T>
@@ -68,13 +68,29 @@ public:
         auto coords = std::make_unique<point_t[]>(n);
         std::string line;
 
-        for (int i = 0; std::getline(f, line); ++i) {
-            const auto idx_y = line.find_last_of(' ') + 1;
-            const int y = std::stoi(line.substr(idx_y));
-            auto idx_x = idx_y - 2;
-            for (; line[idx_x] != ' '; --idx_x);
-            ++idx_x;
-            const int x = std::stoi(line.substr(idx_x, idx_y - idx_x - 1));
+        for (index_t i = 0; std::getline(f, line); ++i) {
+            int x{}, y{};
+            int multiplier = 1;
+            const char* p = line.c_str() + line.length() - 1; // line.end() - 1
+
+            while (*p != ' ') {
+                y += (*p - '0') * multiplier;
+                multiplier *= 10;
+                --p;
+            }
+
+            multiplier = 1;
+
+            while (*p == ' ') {
+                --p;
+            }
+
+            while (*p != ' ') {
+                x += (*p - '0') * multiplier;
+                multiplier *= 10;
+                --p;
+            }
+
             coords[i] = {x, y};
         }
 
@@ -99,8 +115,8 @@ public:
     }
 
     void print(std::ostream& os, const char* tail) const {
-        for (int i = 0; i < n; ++i) {
-            for (int j = 0; j < n; ++j) {
+        for (index_t i = 0; i < n; ++i) {
+            for (index_t j = 0; j < n; ++j) {
                 os << distances.at(i, j) << ' ';
             }
             os << '\n';
@@ -111,10 +127,10 @@ public:
 
 template <typename T, typename Derived, bool should_cache = CACHE_THE_COST>
 class base_TSP_solution_set {
-    using value_type = T;
 protected:
+    using value_type = T; // zmienic na chromosome type
     std::unique_ptr<value_type[]> values;
-    mutable bool cached_cost_up_to_date = false;
+    mutable bool cached_cost_up_to_date = false; // make private? and remove mutable????
     mutable distance_t cost_cache;
 
     base_TSP_solution_set(std::size_t n_chromosomes)
@@ -125,6 +141,10 @@ protected:
     : values(std::move(other.values)) {
     }
 
+    base_TSP_solution_set(const base_TSP_solution_set&) = delete; // uzywac write_copy_of
+    base_TSP_solution_set& operator=(const base_TSP_solution_set&) = delete;
+
+public:
     base_TSP_solution_set& operator=(base_TSP_solution_set&& other) {
         if constexpr (should_cache) {
             cached_cost_up_to_date = false;
@@ -133,19 +153,19 @@ protected:
         return *this;
     }
 
-public:
     distance_t total_cost(const TSP_Graph& graph) const {
-        if constexpr (should_cache) {
-            if (cached_cost_up_to_date)
-                return cost_cache;
-
-            static_assert(
+        static_assert(
                 std::is_same_v<
                     distance_t,
                     decltype(std::declval<const Derived&>()._compute_cost(std::declval<const TSP_Graph&>()))
                 >,
                 "Derived class must implement: distance_t _compute_cost(const TSP_Graph&) const" // metoda _compute_cost nie powinna być wywoływana nigdzie poza tą metodą
             );
+
+        if constexpr (should_cache) {
+            if (cached_cost_up_to_date) {
+                return cost_cache;
+            }
 
             cost_cache = static_cast<const Derived&>(*this)._compute_cost(graph);
             cached_cost_up_to_date = true;
@@ -169,6 +189,7 @@ public:
     }
 
     const value_type& at(index_t i) const noexcept {
+        // niestety nie mozemy sprawdzić czy index jest in-bounds - wywolujacy musi to zapewnić, inaczej UB. tak samo w set()
         return values[i];
     }
 
@@ -201,7 +222,7 @@ public:
         distance_t out{};
         const auto n = graph.n_cities();
 
-        for (int i = 1; i < n; ++i) {
+        for (index_t i = 1; i < n; ++i) {
             out += graph.distance(values[i - 1], values[i]);
         }
 
