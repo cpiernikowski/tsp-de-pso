@@ -10,12 +10,16 @@
 #include <random>
 #include <numeric>
 #include <algorithm>
-#include <iostream>
+#include <ostream>
+
+namespace tsp {
 
 using index_t = std::size_t;
 using distance_t = int; // nie double! zgodność z TSPLIB aby móc opierać się na wynikach z niej
+// moze zmienic na tsp_lib_distance_t?
+// trzeba zobaczyć co z problemami z innymi jednostkami (np floating-point)
 using point_t = std::pair<int, int>;
-using city_index_t = int;
+using city_index_t = index_t;
 
 static constexpr bool CACHE_THE_COST = true;
 static constexpr bool DONT_CACHE_THE_COST = false;
@@ -68,7 +72,7 @@ public:
         auto coords = std::make_unique<point_t[]>(n);
         std::string line;
 
-        for (index_t i = 0; std::getline(f, line); ++i) {
+        for (index_t i = 0; std::getline(f, line); ++i) { //todo: kompatybilnosc ze zmiennoprzecinkowymi wartosciami w pliku danych
             int x{}, y{};
             int multiplier = 1;
             const char* p = line.c_str() + line.length() - 1; // line.end() - 1
@@ -79,11 +83,11 @@ public:
                 --p;
             }
 
-            multiplier = 1;
-
             while (*p == ' ') {
                 --p;
             }
+
+            multiplier = 1;
 
             while (*p != ' ') {
                 x += (*p - '0') * multiplier;
@@ -125,13 +129,25 @@ public:
     }
 };
 
+namespace detail {
+    template <bool enable>
+    struct cache_t {
+        bool up_to_date = false;
+        distance_t cost;
+    };
+
+    template <>
+    struct cache_t<false> {
+    };
+}
+
 template <typename T, typename Derived, bool should_cache = CACHE_THE_COST>
 class base_TSP_solution_set {
 protected:
-    using value_type = T; // zmienic na chromosome type
+    using value_type = T;
     std::unique_ptr<value_type[]> values;
-    mutable bool cached_cost_up_to_date = false; // make private? and remove mutable????
-    mutable distance_t cost_cache;
+    // musi być mutable, bo total_cost powinen być const metodą
+    mutable detail::cache_t<should_cache> cache;
 
     base_TSP_solution_set(std::size_t n_chromosomes)
     : values(std::make_unique<value_type[]>(n_chromosomes)) {
@@ -147,7 +163,7 @@ protected:
 public:
     base_TSP_solution_set& operator=(base_TSP_solution_set&& other) {
         if constexpr (should_cache) {
-            cached_cost_up_to_date = false;
+            cache.up_to_date = false;
         }
         values = std::move(other.values);
         return *this;
@@ -155,21 +171,20 @@ public:
 
     distance_t total_cost(const TSP_Graph& graph) const {
         static_assert(
-                std::is_same_v<
-                    distance_t,
-                    decltype(std::declval<const Derived&>()._compute_cost(std::declval<const TSP_Graph&>()))
-                >,
-                "Derived class must implement: distance_t _compute_cost(const TSP_Graph&) const" // metoda _compute_cost nie powinna być wywoływana nigdzie poza tą metodą
-            );
+            std::is_same_v<
+                distance_t,
+                decltype(std::declval<const Derived&>()._compute_cost(std::declval<const TSP_Graph&>()))
+            >,
+            "Derived class must implement: distance_t _compute_cost(const TSP_Graph&) const" // metoda _compute_cost nie powinna być wywoływana nigdzie poza tą metodą
+        );
 
         if constexpr (should_cache) {
-            if (cached_cost_up_to_date) {
-                return cost_cache;
+            if (!cache.up_to_date) {
+                cache.cost = static_cast<const Derived&>(*this)._compute_cost(graph);
+                cache.up_to_date = true;
             }
 
-            cost_cache = static_cast<const Derived&>(*this)._compute_cost(graph);
-            cached_cost_up_to_date = true;
-            return cost_cache;
+            return cache.cost;
         }
         else {
             return static_cast<const Derived&>(*this)._compute_cost(graph);
@@ -183,7 +198,7 @@ public:
     template <typename OtherDerived, bool OtherCache>
     void write_copy_of(const base_TSP_solution_set<T, OtherDerived, OtherCache>& other, std::size_t n_chromosomes) {
         if constexpr (should_cache) {
-            cached_cost_up_to_date = false;
+            cache.up_to_date = false;
         }
         std::copy_n(other.get_values_raw_ptr(), n_chromosomes, values.get());
     }
@@ -195,7 +210,7 @@ public:
 
     void set(index_t i, value_type t) noexcept {
         if constexpr (should_cache) {
-            cached_cost_up_to_date = false;
+            cache.up_to_date = false;
         }
         values[i] = t;
     }
@@ -213,9 +228,14 @@ public:
     }
 };
 
-class TSP_solution_set : public base_TSP_solution_set<city_index_t, TSP_solution_set> {
+template <bool should_cache>
+class t_TSP_solution_set : public base_TSP_solution_set<city_index_t, t_TSP_solution_set<should_cache>, should_cache> {
+
+    using _my_base = base_TSP_solution_set<city_index_t, t_TSP_solution_set<should_cache>, should_cache>;
+    using _my_base::values;
+
 public:
-    TSP_solution_set(std::size_t n) : base_TSP_solution_set(n) {
+    t_TSP_solution_set(std::size_t n) : _my_base(n) {
     }
 
     distance_t _compute_cost(const TSP_Graph& graph) const {
@@ -233,12 +253,19 @@ public:
 
     void generate_random(std::mt19937& gen, std::size_t n_chromosomes) {
         const auto values_end = std::next(values.get(), n_chromosomes);
+
         std::iota(values.get(), values_end, 0);
         std::shuffle(values.get(), values_end, gen);
-        assert(!cached_cost_up_to_date); // ta metoda raczej zawsze będzie używana tuż po inicjalizacji osobnika, więc ta linijka nie powinna być potrzebna, ale jednak dla pewności daję assert'a, bo nie chcę ustawiać tej zmiennej na false za każdym razem
+
+        if constexpr (should_cache) {
+            assert(!_my_base::cache.up_to_date); // ta metoda raczej zawsze będzie używana tuż po inicjalizacji osobnika, więc ta linijka nie powinna być potrzebna, ale jednak dla pewności daję assert'a, bo nie chcę ustawiać tej zmiennej na false za każdym razem
+        }
     }
 };
 
+using TSP_solution_set = t_TSP_solution_set<CACHE_THE_COST>;
+using TSP_solution_set_no_caching = t_TSP_solution_set<DONT_CACHE_THE_COST>;
 
+} // namespace tsp
 
-#endif
+#endif // ifndef TSP_HPP
