@@ -11,6 +11,8 @@
 #include <numeric>
 #include <algorithm>
 #include <ostream>
+#include <iostream>
+#include <sstream>
 
 namespace tsp {
 
@@ -25,8 +27,16 @@ static constexpr bool CACHE_THE_COST = true;
 static constexpr bool DONT_CACHE_THE_COST = false;
 
 namespace util {
-    distance_t euclidean_distance(const point_t& a, const point_t& b) {
+    distance_t euclidean_distance2(const point_t& a, const point_t& b) {
         return static_cast<distance_t>(std::round(std::hypot(b.first - a.first, b.second - a.second))); // kompatybilne z TSPLIB (stąd round)
+    }
+
+    distance_t euclidean_distance(const point_t& pa, const point_t& pb) {
+        const auto d1 = pb.first - pa.first;
+        const auto d2 = pb.second - pa.second;
+        const auto a = d1 * d1;
+        const auto b = d2 * d2;
+        return static_cast<distance_t>(std::sqrt(static_cast<double>(a + b)) + 0.5);
     }
 
     template <typename T>
@@ -65,7 +75,7 @@ class TSP_Graph { // symetryczny TSP
     std::size_t n;
 
 public:
-    TSP_Graph(std::size_t n_cities, const char* filename)
+    TSP_Graph(std::size_t n_cities, const char* filename) // defaultowo inty
     : distances(n_cities)
     , n{n_cities} {
         std::ifstream f(filename);
@@ -76,25 +86,25 @@ public:
             int x{}, y{};
             int multiplier = 1;
             const char* p = line.c_str() + line.length() - 1; // line.end() - 1
-
+        
             while (*p != ' ') {
                 y += (*p - '0') * multiplier;
                 multiplier *= 10;
                 --p;
             }
-
+        
             while (*p == ' ') {
                 --p;
             }
-
+        
             multiplier = 1;
-
+        
             while (*p != ' ') {
                 x += (*p - '0') * multiplier;
                 multiplier *= 10;
                 --p;
             }
-
+        
             coords[i] = {x, y};
         }
 
@@ -160,7 +170,6 @@ protected:
     base_TSP_solution_set(const base_TSP_solution_set&) = delete; // uzywac write_copy_of
     base_TSP_solution_set& operator=(const base_TSP_solution_set&) = delete;
 
-public:
     base_TSP_solution_set& operator=(base_TSP_solution_set&& other) {
         if constexpr (should_cache) {
             cache.up_to_date = false;
@@ -169,6 +178,7 @@ public:
         return *this;
     }
 
+public:
     distance_t total_cost(const TSP_Graph& graph) const {
         static_assert(
             std::is_same_v<
@@ -235,6 +245,8 @@ class t_TSP_solution_set : public base_TSP_solution_set<city_index_t, t_TSP_solu
     using _my_base::values;
 
 public:
+    using _my_base::value_type;
+
     t_TSP_solution_set(std::size_t n) : _my_base(n) {
     }
 

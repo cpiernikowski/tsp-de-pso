@@ -33,7 +33,7 @@ public:
         const double denom = static_cast<double>(n_genes - 1);
 
         for (index_t rank = 0; rank < n_genes; ++rank) {
-            const city_index_t city = discrete.at(rank);
+            const auto city = discrete.at(rank);
             this->set(city, static_cast<value_type>(static_cast<double>(rank) / denom));
         }
     }
@@ -59,7 +59,7 @@ public:
         t_TSP_solution_set<local_should_cache> out(n_chromosomes);
 
         using my_dict = std::pair<value_type, index_t>;
-        std::unique_ptr<my_dict[]> val_index_map = std::make_unique<my_dict[]>(n_chromosomes);
+        static std::unique_ptr<my_dict[]> val_index_map = std::make_unique<my_dict[]>(n_chromosomes);
 
         for (index_t i = 0; i < n_chromosomes; ++i) {
             val_index_map[i] = {this->values[i], i};
@@ -165,10 +165,12 @@ public:
 
         using gene_value_type = DE_continous_TSP_solution_set::value_type;
         const auto normalize = [](gene_value_type val) -> gene_value_type {
+            // val może być od -2 do 2 (w zaleznosci od F)
             val = std::fmod(val, gene_value_type{1.0});
 
-            if (val < gene_value_type{0.0}) { // sprawdzic czy ten check jest potrzebny w ogole, bo chyba values nigdy nie są ujemne?
-                val += gene_value_type{1.0};
+            if (val < gene_value_type{0.0}) { // sprawdzic czy ten check jest potrzebny w ogole - czy fmod zwraca tez ujemne?
+                //val += gene_value_type{1.0};
+                val = -val;
             }
 
             return val;
@@ -271,6 +273,7 @@ public:
     }
 };
 
+#include <chrono>
 
 int main() {
     // poczytac o innych formach dyskretyzacji, bardziej wydajniejszych (radix sort?)
@@ -282,6 +285,9 @@ int main() {
     pop.generate_random(mt);
 
     std::cout << "\n\n best cost: " << pop.best().cost;
+
+    using namespace std::chrono;
+    auto start = high_resolution_clock::now();
 
     for (int i = 0; i < 5; ++i) {
         pop.evolve(mt);
@@ -295,6 +301,11 @@ int main() {
         best_indiv.discretize(pop.n_genes()).print(std::cout, pop.n_genes());
         std::cout << "=========\n";
     }
+
+    auto end = high_resolution_clock::now();
+    auto duration = duration_cast<microseconds>(end - start).count();
+
+    std::cout << "\nCzas wykonania: " << duration << " us" << std::endl;
 
     return EXIT_SUCCESS;
 }
