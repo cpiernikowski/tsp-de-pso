@@ -116,6 +116,7 @@ public:
                 // ([i*n+j], a [i * n - (i * (i - 1)) / 2 + (j - i))]) oraz zamiana `i` z `j` jeśli j < i, zdecydowałem więc, że wolę poświęcić połowę więcej pamięci dla tablicy
                 // szczególnie biorąc pod uwagę, że tablica będzie bardzo często indeksowana przy implementacji PSO i DE
                 distances.set(i, j, util::euclidean_distance(coords[i], coords[j]));
+                
             }
         }
     }
@@ -278,6 +279,70 @@ public:
 using TSP_solution_set = t_TSP_solution_set<CACHE_THE_COST>;
 using TSP_solution_set_no_caching = t_TSP_solution_set<DONT_CACHE_THE_COST>;
 
+template <bool should_cache = CACHE_THE_COST> // przenies ten template do internal ns?
+class t_Continous_TSP_solution_set : public base_TSP_solution_set<double, t_Continous_TSP_solution_set<should_cache>, should_cache> {
+
+    using _my_base = base_TSP_solution_set<double, t_Continous_TSP_solution_set<should_cache>, should_cache>;
+
+public:
+    using typename _my_base::value_type;
+
+    t_Continous_TSP_solution_set(std::size_t n_chromosomes) : _my_base(n_chromosomes) {
+    }
+
+    template <bool local_should_cache = CACHE_THE_COST>
+    void set_from_discrete(const t_TSP_solution_set<local_should_cache>& discrete, std::size_t n_genes) {
+        const double denom = static_cast<double>(n_genes - 1);
+
+        for (index_t rank = 0; rank < n_genes; ++rank) {
+            const auto city = discrete.at(rank);
+            this->set(city, static_cast<value_type>(static_cast<double>(rank) / denom));
+        }
+    }
+
+    void generate_random(std::mt19937& gen, std::size_t n_chromosomes) {
+        static std::uniform_real_distribution<double> dis(0.0, 1.0);
+
+        for (index_t i = 0; i < n_chromosomes; ++i) {
+            this->values[i] = dis(gen); // literatura twierdzi, że nie trzeba sprawdzać i zmieniać duplikatów - przy sortowaniu podczas dyskretyzacji duplikaty nie dadzą problemów, szczególnie że prawie nigdy nie wystąpią
+        }
+        
+        if constexpr (should_cache) {
+            assert(!_my_base::cache.up_to_date);
+        }
+    }
+
+    distance_t _compute_cost(const TSP_Graph& graph) const {
+        return discretize(graph.n_cities())._compute_cost(graph);
+    }
+
+    template <bool local_should_cache = CACHE_THE_COST>
+    auto discretize(std::size_t n_chromosomes) const {
+        t_TSP_solution_set<local_should_cache> out(n_chromosomes);
+
+        using my_dict = std::pair<value_type, index_t>;
+        static std::unique_ptr<my_dict[]> val_index_map = std::make_unique<my_dict[]>(n_chromosomes); // to nie moze byc static w przyszlosci
+
+        for (index_t i = 0; i < n_chromosomes; ++i) {
+            val_index_map[i] = {this->values[i], i};
+        }
+
+        const auto my_dict_comparator = [](const my_dict& a, const my_dict& b) {
+            return a.first < b.first;
+        };
+
+        std::sort(val_index_map.get(), std::next(val_index_map.get(), n_chromosomes), my_dict_comparator); // pomyslec czy jest jakis algorytm sortujący dobrze radzacy sobie z tym typem danych (double od 0 do 1)
+
+        for (index_t i = 0; i < n_chromosomes; ++i) {
+            out.set(i, static_cast<city_index_t>(val_index_map[i].second));
+        }
+
+        return out; // RVO
+    }
+};
+
+    using Continous_TSP_solution_set = t_Continous_TSP_solution_set<CACHE_THE_COST>; // defaultowo cache'ujemy brak cache'owania tylko w typie dla trial vectora (powód wyżej)
+    using Continous_TSP_solution_set_no_caching = t_Continous_TSP_solution_set<DONT_CACHE_THE_COST>; // ten typ jest taki sam jak DE_continous_TSP_solution_set, ale bez cache'owania - dla trial vector'a jest to totalnie niepotrzebne, bo za każdym razem gdy obliczany jest koszt, wektor jest inny (cache'owanie nigdy nie wystąpi)
 } // namespace tsp
 
 #endif // ifndef TSP_HPP
