@@ -11,13 +11,17 @@ struct DE_params {
     static constexpr double F = 0.7;
 };
 
-class DE_population : public Continous_population {
+class DE_population final : public Population<Continous_TSP_solution_set, Continous_TSP_solution_set_no_caching> {
+    using _my_base = Population<Continous_TSP_solution_set, Continous_TSP_solution_set_no_caching>;
+    using _my_base::individual_type;
+    using _my_base::trial_type;
+
     // dystrybucje używane w funkcji `evolve` - nie ma sensu konstruować je za każdym wywołaniem tej funkcji,
     // nie powinny one też być statyczne, ponieważ wtedy wprowadziłoby to ograniczenie - każda populacja w programie
     // musiałaby mieć taką samą długość chromosomu każdego osobnika. to ogranicznie raczej nie przeszkadzałoby w tym co chcę osiągnąć tym programem, ale po co sobie zamykać furtki na przyszłość
     std::uniform_real_distribution<double> evolve_distrib_r;
     std::uniform_int_distribution<index_t> evolve_distrib_chromosome_index;
-    std::uniform_int_distribution<index_t> evolve_distrib_indivi_index;
+    std::uniform_int_distribution<index_t> evolve_distrib_indivi_index; // przeniesc do structa "distrib"
     index_cost_pair current_best_info;
     double CR;
 
@@ -25,7 +29,7 @@ class DE_population : public Continous_population {
 
 public:
     DE_population(std::size_t pop_size, const TSP_Graph& graph_ref)
-    : Continous_population(pop_size, graph_ref)
+    : _my_base(pop_size, graph_ref)
     , evolve_distrib_r(0.0, 1.0)
     , evolve_distrib_chromosome_index(0, graph_ref.n_cities() - 1)
     , evolve_distrib_indivi_index(0, pop_size - 1)
@@ -35,13 +39,15 @@ public:
     }
 
     void evolve(std::mt19937& gen) {
+        assert(debug_population_initialized && "best(): population wasn't initialized");
+
         const auto random_idx_exclusive = [this, &gen](auto... other_idxes) -> index_t {
             index_t out;
             do out = evolve_distrib_indivi_index(gen); while (((out == other_idxes) || ...));
             return out;
         };
 
-        using gene_value_type = Continous_TSP_solution_set::value_type;
+        using gene_value_type = individual_type::value_type; // zmienic value_type na gene_type
         const auto normalize = [](gene_value_type val) -> gene_value_type {
             // val może być od -2 do 2 (w zaleznosci od F)
             val = std::fmod(val, gene_value_type{1.0});

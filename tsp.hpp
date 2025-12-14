@@ -317,7 +317,7 @@ public:
     }
 
     template <bool local_should_cache = CACHE_THE_COST>
-    auto discretize(std::size_t n_chromosomes) const {
+    auto discretize(std::size_t n_chromosomes) const { // zmienic nazwe na make_new_discrete
         t_TSP_solution_set<local_should_cache> out(n_chromosomes);
 
         using my_dict = std::pair<value_type, index_t>;
