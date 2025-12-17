@@ -92,4 +92,71 @@ public:
     }
 };
 
+template <typename ChromosomeType> // jakies ograniczenia na typ
+void perform_2opt(ChromosomeType& ch, const TSP_Graph& graph, index_t max_iters) {
+    const auto ch_ptr = ch.mutable_get_ptr(); // w teorii szybsze niz uzywanie at i set
+    const auto n_genes_local = graph.n_cities();
+
+    auto swap2opt = [ch_ptr](index_t start, index_t end) {
+                while (start < end) {
+                    //auto tmp = ch.at(start);
+                    //ch.set(start, ch.at(end));
+                    //ch.set(end, tmp);
+                    auto tmp = ch_ptr[start];
+                    ch_ptr[start] = ch_ptr[end];
+                    ch_ptr[end] = tmp;
+                
+                    ++start;
+                    --end;
+                }
+            };
+
+    bool improved = true;
+            const index_t max_iters_2opt = max_iters;
+            index_t iters_counter = 0;
+
+            while (improved && iters_counter < max_iters_2opt) {
+                distance_t best_delta = 0;
+                static constexpr index_t invalid_best_index_ij = std::numeric_limits<index_t>::max();
+                index_t best_i = invalid_best_index_ij;
+                index_t best_j = invalid_best_index_ij;
+
+                for (index_t i_2opt = 0; i_2opt < n_genes_local - 2; ++i_2opt) {
+                    for (index_t j_2opt = i_2opt + 2; j_2opt < n_genes_local - 1; ++j_2opt) {
+
+                        // przykład dla miast A B C D E F G:
+                        // dla i_2opt = 1 czyli indeks miasta B
+                        // dla j_2opt = 5 czyli indeks miasta F
+                        // jeśli odleglosc_miedzy(B, C)+odleglosc_miedzy(F, G) > odleglosc_miedzy(B, F)+odleglosc_miedzy(C, G):
+                        //      zamień_kolejnością(od C do F) # czyli od indeksu i_2opt+1 do j_2opt
+                        // wynik: A B F E D C G
+                        // trzeba zamienić kolejność, żeby D nadal było połączone z E, oraz E było połączone z F, tak jak przed zmianą
+                        
+                        const auto old_distance = graph.distance(ch_ptr[i_2opt], ch_ptr[i_2opt + 1])
+                                                + graph.distance(ch_ptr[j_2opt], ch_ptr[j_2opt + 1]);
+
+                        const auto new_distance = graph.distance(ch_ptr[i_2opt], ch_ptr[j_2opt])
+                                                + graph.distance(ch_ptr[i_2opt + 1], ch_ptr[j_2opt + 1]);
+
+                        const auto distance_delta = old_distance - new_distance;
+
+                        if (distance_delta > best_delta) {
+                            best_delta = distance_delta;
+                            best_i = i_2opt;
+                            best_j = j_2opt;
+                        }
+                    }
+                }
+
+                if (best_delta > 0) {
+                    assert(best_i != invalid_best_index_ij && best_j != invalid_best_index_ij);
+                    swap2opt(best_i + 1, best_j); // + 1 bo 2opt działa tak, że best_i to początkowa krawedz, która jeszcze jest ok, dopiero od następnej chcemy zrobić swapa, aż do best_j (nie do best_j + 1!)
+                }
+                else {
+                    improved = false;
+                }
+                ++iters_counter;
+            }
+}
+
 #endif

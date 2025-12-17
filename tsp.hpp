@@ -153,14 +153,14 @@ namespace detail {
 }
 
 template <typename T, typename Derived, bool should_cache = CACHE_THE_COST>
-class base_TSP_solution_set {
+class base_TSP_solution_set { // zmienic nazwe na base_chromosome
 protected:
     using value_type = T;
-    std::unique_ptr<value_type[]> values;
+    std::unique_ptr<value_type[]> values; // zmienic nazwe na chromosome
     // musi być mutable, bo total_cost powinen być const metodą
     mutable detail::cache_t<should_cache> cache;
 
-    base_TSP_solution_set(std::size_t n_chromosomes)
+    base_TSP_solution_set(std::size_t n_chromosomes) // zmienic nazwe na n_genes
     : values(std::make_unique<value_type[]>(n_chromosomes)) {
     }
 
@@ -217,6 +217,15 @@ public:
     const value_type& at(index_t i) const noexcept {
         // niestety nie mozemy sprawdzić czy index jest in-bounds - wywolujacy musi to zapewnić, inaczej UB. tak samo w set()
         return values[i];
+    }
+
+    value_type& mutable_at(index_t i) noexcept {
+        cache.up_to_date = false;
+        return values[i];
+    }
+
+    decltype(auto) mutable_get_ptr() noexcept {
+        return values.get();
     }
 
     void set(index_t i, value_type t) noexcept {
@@ -313,7 +322,7 @@ public:
     }
 
     distance_t _compute_cost(const TSP_Graph& graph) const {
-        return discretize(graph.n_cities())._compute_cost(graph);
+        return discretize(graph.n_cities())._compute_cost(graph); // dodac tu <DONT_CACHE_THE_COST?>
     }
 
     template <bool local_should_cache = CACHE_THE_COST>

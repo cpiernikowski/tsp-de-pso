@@ -91,67 +91,7 @@ public:
             // 2opt loop
             auto discrete_trial = trial.discretize<DONT_CACHE_THE_COST>(n_genes_local);
 
-            auto discrete_trial_swap2opt = [&discrete_trial](index_t start, index_t end) {
-                while (start < end) {
-                    auto tmp = discrete_trial.at(start);
-                    discrete_trial.set(start, discrete_trial.at(end));
-                    discrete_trial.set(end, tmp);
-                
-                    ++start;
-                    --end;
-                }
-            };
-
-            std::uniform_real_distribution<double> dis_2opt(0.0, 1.0); // czasem uzywam, czasem nie - idea jest taka zeby tylko dla jakiegoś procenta populacji przeprowadzać 2opt
-            const auto rand_2opt = dis_2opt(gen);
-
-            bool improved = true;
-            const auto max_iters_2opt = n_genes_local;
-            std::remove_const_t<decltype(max_iters_2opt)> iters_counter = 0;
-
-            while (improved && iters_counter < max_iters_2opt) {
-                distance_t best_delta = 0;
-                static constexpr index_t invalid_best_index_ij = std::numeric_limits<index_t>::max();
-                index_t best_i = invalid_best_index_ij;
-                index_t best_j = invalid_best_index_ij;
-
-                for (index_t i_2opt = 0; i_2opt < n_genes_local - 2; ++i_2opt) {
-                    for (index_t j_2opt = i_2opt + 2; j_2opt < n_genes_local - 1; ++j_2opt) {
-
-                        // przykład dla miast A B C D E F G:
-                        // dla i_2opt = 1 czyli indeks miasta B
-                        // dla j_2opt = 5 czyli indeks miasta F
-                        // jeśli odleglosc_miedzy(B, C)+odleglosc_miedzy(F, G) > odleglosc_miedzy(B, F)+odleglosc_miedzy(C, G):
-                        //      zamień_kolejnością(od C do F) # czyli od indeksu i_2opt+1 do j_2opt
-                        // wynik: A B F E D C G
-                        // trzeba zamienić kolejność, żeby D nadal było połączone z E, oraz E było połączone z F, tak jak przed zmianą
-                        
-                        const auto old_distance = graph.distance(discrete_trial.at(i_2opt), discrete_trial.at(i_2opt + 1))
-                                                + graph.distance(discrete_trial.at(j_2opt), discrete_trial.at((j_2opt + 1)));
-
-                        const auto new_distance = graph.distance(discrete_trial.at(i_2opt), discrete_trial.at(j_2opt))
-                                                + graph.distance(discrete_trial.at(i_2opt + 1), discrete_trial.at((j_2opt + 1)));
-
-                        const auto distance_delta = old_distance - new_distance;
-
-                        if (distance_delta > best_delta) {
-                            best_delta = distance_delta;
-                            best_i = i_2opt;
-                            best_j = j_2opt;
-                        }
-                    }
-                }
-
-                if (best_delta > 0) {
-                    assert(best_i != invalid_best_index_ij && best_j != invalid_best_index_ij);
-                    discrete_trial_swap2opt(best_i + 1, best_j); // + 1 bo 2opt działa tak, że best_i to początkowa krawedz, która jeszcze jest ok, dopiero od następnej chcemy zrobić swapa, aż do best_j (nie do best_j + 1!)
-                }
-                else {
-                    improved = false;
-                }
-                ++iters_counter;
-            }
-            // end 2opt loop. todo: zobic z tego fn call?
+            perform_2opt(discrete_trial, graph, 10);
 
             if (discrete_trial.total_cost(graph) < x.total_cost(graph)) {
                 x.set_from_discrete<DONT_CACHE_THE_COST>(discrete_trial, n_genes_local);
@@ -193,7 +133,9 @@ int main() {
     DE_population pop(100, graph); // liczba osobników w populacji
     pop.generate_random(mt);
 
-    std::cout << "\n\n best cost: " << pop.best().cost;
+    const auto best_start = pop.best().cost;
+
+    std::cout << "\n\n best cost: " << best_start;
 
     for (int i = 0; i < 30; ++i) { // liczba ewolucji
         pop.evolve(mt);
@@ -207,6 +149,9 @@ int main() {
         best_indiv.discretize(pop.n_genes()).print(std::cout, pop.n_genes());
         std::cout << "=========\n";
     }
+
+    const auto best_end = pop.best().cost;
+    std::cout << "d: " << best_start - best_end;
 
     auto end = high_resolution_clock::now();
     auto duration = duration_cast<milliseconds>(end - start).count();
