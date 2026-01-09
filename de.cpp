@@ -3,6 +3,7 @@
 #include <iostream>
 #include <iomanip>
 
+static uint64_t G_cost_func_counter = 0;
 
 struct DE_params {
     //static constexpr unsigned NP = 1000;
@@ -96,6 +97,8 @@ public:
             if (discrete_trial.total_cost(graph) < x.total_cost(graph)) {
                 x.set_from_discrete<DONT_CACHE_THE_COST>(discrete_trial, n_genes_local);
             }
+
+            G_cost_func_counter += 2;
         }
 
         //const auto best_this_iter = this->best();
@@ -145,7 +148,8 @@ int main(int argc, char** argv) { // dodac argumenty programu - sciezka do probl
     pop.get(best.index)
        .discretize(pop.n_genes())
        .print(std::cout, pop.n_genes(), "\n", true);
-    std::cout << "Koszt tej trasy: " << best.cost;
+    std::cout << "Koszt tej trasy: " << best.cost << '\n';
+    std::cout << "Ilosc wywolan funkcji kosztu: " << G_cost_func_counter;
 
     return EXIT_SUCCESS;
 }

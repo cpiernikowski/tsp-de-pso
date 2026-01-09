@@ -2,6 +2,8 @@
 #include "common.hpp"
 #include <iostream> // debug
 
+static uint64_t G_cost_func_counter = 0;
+
 struct velocity_vec {
     std::unique_ptr<double[]> v;
 
@@ -97,6 +99,7 @@ public:
 
         const auto& current_best = pop[b.index];
         best_known_pos.write_copy_of(current_best, n_genes());
+        G_cost_func_counter += n;
     }
 
     const auto& best() const { // override
@@ -186,10 +189,13 @@ public:
                 particle_i.set_from_discrete(discrete_ch, local_n_genes);
                 particle_i.best_known_pos.write_copy_of(particle_i, local_n_genes);
 
+                ++G_cost_func_counter;
+
                 if (particle_i_cost < best_known_pos.total_cost(graph)) {
                     best_known_pos.write_copy_of(particle_i, local_n_genes);
                 }
             }
+            G_cost_func_counter += 2;
         }
     }
 };
@@ -223,9 +229,10 @@ int main(int argc, char** argv) {
     auto& best = pop.best();
 
     std::cout << "Najlepsza znaleziona droga:\n";
-    best.print(std::cout, pop.n_genes(), "\n", true);
+    best.discretize(graph.n_cities()).print(std::cout, pop.n_genes(), "\n", true);
 
-    std::cout << "Koszt tej trasy: " << best.total_cost(graph);
+    std::cout << "Koszt tej trasy: " << best.total_cost(graph) << '\n';
+    std::cout << "Ilosc wywolan funkcji kosztu: " << G_cost_func_counter;
 
     return EXIT_SUCCESS;
 }

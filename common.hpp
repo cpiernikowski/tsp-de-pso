@@ -162,7 +162,7 @@ void perform_2opt(ChromosomeType& ch, const TSP_Graph& graph, index_t max_iters)
 struct ProgramArgs {
     std::size_t pop_size = 100;
     std::size_t n_of_evolutions = 30;
-    std::size_t max_iters_2opt = 3;
+    std::size_t max_iters_2opt = 50;
     std::string_view problem_filename;
     bool display_help = false;
 
@@ -175,7 +175,7 @@ struct ProgramArgs {
                 << "Options:\n"
                 << "  -pop=N        Rozmiar populacji (default: 100)\n"
                 << "  -evol=N       Liczba ewolucji (default: 30)\n"
-                << "  -2opt=N       Max iteracji 2-opt (default: 5)\n"
+                << "  -2opt=N       Max iteracji 2-opt (default: 50)\n"
                 << "  -file=PATH    Plik problemu kompatybilny z TSPLIB (.tsp)\n";
     }
 
