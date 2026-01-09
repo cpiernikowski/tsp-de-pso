@@ -24,11 +24,11 @@ struct velocity_vec {
     }
 };
 
-template <bool should_cache = CACHE_THE_COST>
+template <bool should_cache>
 struct t_PSO_individual : public t_Continous_TSP_solution_set<should_cache> { // mozna by bylo trzymac w oddzielnych tablicach, ale wtedy musialby byc obliczany offset
     using base_chromosome = t_Continous_TSP_solution_set<should_cache>;
     velocity_vec v_vec;
-    t_Continous_TSP_solution_set<CACHE_THE_COST> best_known_pos; // w tym ma byc caching
+    Continous_TSP_solution_set_caching best_known_pos; // w tym ma byc caching
 
     t_PSO_individual(std::size_t n_indivi)
     : base_chromosome(n_indivi)
@@ -52,66 +52,64 @@ struct t_PSO_individual : public t_Continous_TSP_solution_set<should_cache> { //
         // sprawdz czy nie da sie dac po prostu *this?
         //if constepxr should cache.....
     }
-/*
-    decltype(auto) total_cost(const TSP_Graph& graph) const {
-        return ch.total_cost(graph);
-    }
-
-    decltype(auto) discretize(std::size_t n_indivi) const {
-        return ch.discretize(n_indivi);
-    }
-
-    decltype(auto) print(std::ostream& os, std::size_t n_indivi) const {
-        return ch.print(os, n_indivi);
-    }
-        */
 };
 
-using PSO_individual = t_PSO_individual<CACHE_THE_COST>;
-using PSO_individual_no_caching = t_PSO_individual<DONT_CACHE_THE_COST>;
+using PSO_individual = t_PSO_individual<DONT_CACHE_THE_COST>;
+using PSO_individual_caching = t_PSO_individual<CACHE_THE_COST>;
 // cacheowanie nie ma sensu - polzoenie zawsze sie zmienia
-class PSO_population final : public Population<PSO_individual, PSO_individual_no_caching> {
-    using _my_base = Population<PSO_individual, PSO_individual_no_caching>;
+class PSO_population final : public Population<PSO_individual, PSO_individual> {
+    using _my_base = Population<PSO_individual, PSO_individual>;
 
-    Continous_TSP_solution_set best_known_pos; //  w tym ma byc caching
     double phi_p;
     double phi_g;
     double w;
+    Continous_TSP_solution_set_caching best_known_pos; //  w tym ma byc caching
+    std::size_t max_iters_2opt;
 
 public:
-    PSO_population(std::size_t pop_size, const TSP_Graph& graph_ref, double phi_p, double phi_g, double w)
+    PSO_population(std::size_t pop_size, const TSP_Graph& graph_ref, std::size_t max_iters_2opt, double phi_p, double phi_g, double w)
     : _my_base(pop_size, graph_ref)
-    , best_known_pos(graph_ref.n_cities())
     , phi_p{phi_p}
     , phi_g{phi_g}
     , w{w}
+    , best_known_pos(graph_ref.n_cities())
+    , max_iters_2opt{max_iters_2opt}
     {
 
     }
 
     void generate_random(std::mt19937& gen) {
-        for (index_t i = 0; i < n; ++i) {
-            pop[i].generate_random(gen, n_genes());
-        }
-
         debug_population_initialized = true;
 
-        const auto& current_best = pop[best().index];
-        best_known_pos.write_copy_of(current_best, n_genes());
-    }
+        pop[0].generate_random(gen, n_genes());
 
-    index_cost_pair best() const { // override
-        assert(debug_population_initialized && "best(): population wasn't initialized");
-        index_cost_pair out = {0, pop[0].best_known_pos.total_cost(graph)};
+        // inicjalizacja najlepszego obecnie osobnika
+        index_cost_pair b = {0, pop[0].best_known_pos.total_cost(graph)};
 
         for (index_t i = 1; i < n; ++i) {
+            pop[i].generate_random(gen, n_genes());
+
             const auto c = pop[i].best_known_pos.total_cost(graph);
-            if (out.cost > c) {
-                out = {i, c};
+            if (b.cost > c) {
+                b = {i, c};
             }
         }
 
-        return out;
+        const auto& current_best = pop[b.index];
+        best_known_pos.write_copy_of(current_best, n_genes());
+    }
+
+    const auto& best() const { // override
+        assert(debug_population_initialized && "best(): population wasn't initialized");
+        //index_cost_pair out = {0, pop[0].best_known_pos.total_cost(graph)};
+        //for (index_t i = 1; i < n; ++i) {
+        //    const auto c = pop[i].best_known_pos.total_cost(graph);
+        //    if (out.cost > c) {
+        //        out = {i, c};
+        //    }
+        //}
+
+        return best_known_pos;
     }
 
     void reflect_position_velocity(double& x, double& v, double vmax) {
@@ -151,11 +149,11 @@ public:
         static std::uniform_real_distribution dis1(0.0, 1.0);
         const auto local_n_genes = n_genes();
 
-        using gene_value_type = individual_type::value_type; // zmienic value_type na gene_type
-        const auto normalized = [](gene_value_type val, double min, double max) -> gene_value_type {
-            // val może być od -2 do 2 (w zaleznosci od F)
-            return std::clamp(val, min, max);
-        };
+        //using gene_value_type = individual_type::value_type; // zmienic value_type na gene_type
+        //const auto normalized = [](gene_value_type val, double min, double max) -> gene_value_type {
+        //    // val może być od -2 do 2 (w zaleznosci od F)
+        //    return std::clamp(val, min, max);
+        //};
 
         for (index_t i = 0; i < n; ++i) {
             auto& particle_i = pop[i];
@@ -177,13 +175,13 @@ public:
                     particle_ij += std::normal_distribution<double>(0, 0.02)(gen);
                 }
                 reflect_position_velocity(particle_ij, velocity_ij, 1.0 / static_cast<double>(local_n_genes));
-                //particle_ij = normalized(particle_ij, 0.0, 1.0);
             }
 
-            auto discrete_ch = particle_i.discretize(local_n_genes);
-            perform_2opt(discrete_ch, graph, 10);
+            auto discrete_ch = particle_i.discretize<DONT_CACHE_THE_COST>(local_n_genes);
+            perform_2opt(discrete_ch, graph, max_iters_2opt);
 
             const auto particle_i_cost = discrete_ch.total_cost(graph);
+            
             if (particle_i_cost < particle_i.best_known_pos.total_cost(graph)) {
                 particle_i.set_from_discrete(discrete_ch, local_n_genes);
                 particle_i.best_known_pos.write_copy_of(particle_i, local_n_genes);
@@ -194,46 +192,40 @@ public:
             }
         }
     }
-
 };
 
-#include <chrono>
+int main(int argc, char** argv) {
+    ProgramArgs pargs;
+    pargs.parse_args(argc, argv);
 
-int main() {
-    using namespace std::chrono;
-    auto start = high_resolution_clock::now();
+    if (pargs.display_help) {
+        pargs.print_help();
+        return EXIT_SUCCESS;
+    }
 
-    const TSP_Graph graph(280, "./ALL_tsp/sformatowane/a280.tsp");
+    if (pargs.problem_filename.empty()) {
+        std::cerr << "Brak pliku problemu (-file)\n";
+        pargs.print_help();
+        return EXIT_FAILURE;
+    }
+
+    const TSP_Graph graph(pargs.problem_filename.data());
     std::random_device rd;
     std::mt19937 mt(rd());
  
-    PSO_population pop(100, graph, 1.5, 1.5, 0.7); // liczba osobników w populacji
+    PSO_population pop(pargs.pop_size, graph, pargs.max_iters_2opt, 1.5, 1.5, 0.7);
     pop.generate_random(mt);
 
-    const auto best_start = pop.best().cost;
-
-    std::cout << "\n\n best cost: " << best_start;
-
-    for (int i = 0; i < 30; ++i) { // liczba ewolucji
+    for (std::size_t i = 0; i < pargs.n_of_evolutions; ++i) { // liczba ewolucji
         pop.evolve(mt);
-        const auto best = pop.best();
-        std::cout << "\n\n best cost: " << best.cost;
-        std::cout << "\n";
-
-        const auto& best_indiv = pop.get(best.index);
-        best_indiv.print(std::cout, pop.n_genes());
-        std::cout << '\n';
-        best_indiv.discretize(pop.n_genes()).print(std::cout, pop.n_genes());
-        std::cout << "=========\n";
     }
 
-    const auto best_end = pop.best().cost;
-    std::cout << "d: " << best_start - best_end;
+    auto& best = pop.best();
 
-    auto end = high_resolution_clock::now();
-    auto duration = duration_cast<milliseconds>(end - start).count();
+    std::cout << "Najlepsza znaleziona droga:\n";
+    best.print(std::cout, pop.n_genes(), "\n", true);
 
-    std::cout << "\nCzas wykonania: " << duration << " ms" << std::endl;
+    std::cout << "Koszt tej trasy: " << best.total_cost(graph);
 
     return EXIT_SUCCESS;
 }

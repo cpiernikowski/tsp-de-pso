@@ -14,13 +14,12 @@
 #include <iostream>
 #include <sstream>
 
-namespace tsp {
 
 using index_t = std::size_t;
-using distance_t = int; // nie double! zgodność z TSPLIB aby móc opierać się na wynikach z niej
+using distance_t = std::int32_t; // nie double! zgodność z TSPLIB aby móc opierać się na wynikach z niej
 // moze zmienic na tsp_lib_distance_t?
 // trzeba zobaczyć co z problemami z innymi jednostkami (np floating-point)
-using point_t = std::pair<int, int>;
+using point_t = std::pair<double, double>;
 using city_index_t = index_t;
 
 static constexpr bool CACHE_THE_COST = true;
@@ -36,7 +35,7 @@ namespace util {
         const auto d2 = pb.second - pa.second;
         const auto a = d1 * d1;
         const auto b = d2 * d2;
-        return static_cast<distance_t>(std::sqrt(static_cast<double>(a + b)) + 0.5);
+        return static_cast<distance_t>(std::sqrt(static_cast<double>(a + b)) + 0.5); // rekomendowana wersja dla kompatybilnosci z tsplib
     }
 
     template <typename T>
@@ -45,9 +44,18 @@ namespace util {
         std::size_t n;
 
     public:
+        square_mat() {
+
+        }
+
         square_mat(std::size_t n_rows)
         : p(std::make_unique<T[]>(n_rows * n_rows))
         , n{n_rows} {
+        }
+
+        void init(std::size_t n_rows) {
+            p = std::make_unique<T[]>(n_rows * n_rows);
+            n = n_rows;
         }
 
         T& at(index_t i, index_t j) noexcept {
@@ -71,41 +79,46 @@ namespace util {
 }
 
 class TSP_Graph { // symetryczny TSP
-    util::square_mat<distance_t> distances;
     std::size_t n;
+    util::square_mat<distance_t> distances;
 
 public:
-    TSP_Graph(std::size_t n_cities, const char* filename) // defaultowo inty
-    : distances(n_cities)
-    , n{n_cities} {
+    TSP_Graph(const char* filename) {
         std::ifstream f(filename);
-        auto coords = std::make_unique<point_t[]>(n);
-        std::string line;
 
-        for (index_t i = 0; std::getline(f, line); ++i) { //todo: kompatybilnosc ze zmiennoprzecinkowymi wartosciami w pliku danych
-            int x{}, y{};
-            int multiplier = 1;
-            const char* p = line.c_str() + line.length() - 1; // line.end() - 1
-        
-            while (*p != ' ') {
-                y += (*p - '0') * multiplier;
-                multiplier *= 10;
-                --p;
+        std::string line;
+        while (std::getline(f, line)) { // pominiecie informacji
+            if (line.find("NODE_COORD_SECTION") != std::string::npos) {
+                break;
             }
+        }
+
+        auto pos = f.tellg();
         
-            while (*p == ' ') {
-                --p;
+        std::size_t count = 0;
+        while (std::getline(f, line)) { // zliczenie ilosci miast w pliku
+            if (line == "EOF") {
+                break;
             }
-        
-            multiplier = 1;
-        
-            while (*p != ' ') {
-                x += (*p - '0') * multiplier;
-                multiplier *= 10;
-                --p;
+
+            if (!line.empty()) {
+                ++count;
             }
-        
-            coords[i] = {x, y};
+        }
+
+        n = count;
+
+        f.clear();
+        f.seekg(pos); // po liczeniu ilosci miasttrzeba przywtrocic pozycję
+
+        distances.init(n);
+        auto coords = std::make_unique<point_t[]>(n);
+
+        int id_dummy;
+
+        for (index_t i = 0; i < n; ++i) {
+            auto& coords_i = coords[i];
+            f >> id_dummy >> coords_i.first >> coords_i.second;
         }
 
         f.close();
@@ -116,7 +129,6 @@ public:
                 // ([i*n+j], a [i * n - (i * (i - 1)) / 2 + (j - i))]) oraz zamiana `i` z `j` jeśli j < i, zdecydowałem więc, że wolę poświęcić połowę więcej pamięci dla tablicy
                 // szczególnie biorąc pod uwagę, że tablica będzie bardzo często indeksowana przy implementacji PSO i DE
                 distances.set(i, j, util::euclidean_distance(coords[i], coords[j]));
-                
             }
         }
     }
@@ -129,7 +141,7 @@ public:
         return n;
     }
 
-    void print(std::ostream& os, const char* tail) const {
+    void print(std::ostream& os, const char* tail = "") const {
         for (index_t i = 0; i < n; ++i) {
             for (index_t j = 0; j < n; ++j) {
                 os << distances.at(i, j) << ' ';
@@ -180,7 +192,7 @@ protected:
     }
 
 public:
-    distance_t total_cost(const TSP_Graph& graph) const {
+    distance_t total_cost(const TSP_Graph& graph) const { // klasy pochodne na rozne sposoby moga obliczac koszt. logicznie i praktycznie zachowanie cacheu zawsze jest takie same, dlatego zrobione jest w ponizszy sposob, dzieki temu klasy pochodne nie musza sie martwic o implementacje cacheowania
         static_assert(
             std::is_same_v<
                 distance_t,
@@ -220,11 +232,12 @@ public:
     }
 
     value_type& mutable_at(index_t i) noexcept {
-        cache.up_to_date = false;
+        static_assert(!should_cache);
         return values[i];
     }
 
-    decltype(auto) mutable_get_ptr() noexcept {
+    value_type* mutable_get_ptr() noexcept {
+        static_assert(!should_cache);
         return values.get();
     }
 
@@ -235,8 +248,8 @@ public:
         values[i] = t;
     }
 
-    void print(std::ostream& os, std::size_t n_chromosomes, const char* tail = "") const {
-        const auto end_idx = n_chromosomes - 1;
+    void print(std::ostream& os, std::size_t n_genes, const char* tail = "", bool print_last = false) const {
+        const auto end_idx = n_genes - 1;
 
         os << '[';
 
@@ -244,7 +257,13 @@ public:
             os << values[i] << ", ";
         }
 
-        os << values[end_idx] << ']' << tail;
+        os << values[end_idx];
+
+        if (print_last) {
+            os << ", " << values[0];
+        }
+
+        os << ']' << tail;
     }
 };
 
@@ -285,10 +304,10 @@ public:
     }
 };
 
-using TSP_solution_set = t_TSP_solution_set<CACHE_THE_COST>;
-using TSP_solution_set_no_caching = t_TSP_solution_set<DONT_CACHE_THE_COST>;
+using TSP_solution_set = t_TSP_solution_set<DONT_CACHE_THE_COST>;
+using TSP_solution_set_caching = t_TSP_solution_set<CACHE_THE_COST>;
 
-template <bool should_cache = CACHE_THE_COST> // przenies ten template do internal ns?
+template <bool should_cache> // przenies ten template do internal ns?
 class t_Continous_TSP_solution_set : public base_TSP_solution_set<double, t_Continous_TSP_solution_set<should_cache>, should_cache> {
 
     using _my_base = base_TSP_solution_set<double, t_Continous_TSP_solution_set<should_cache>, should_cache>;
@@ -299,13 +318,18 @@ public:
     t_Continous_TSP_solution_set(std::size_t n_chromosomes) : _my_base(n_chromosomes) {
     }
 
-    template <bool local_should_cache = CACHE_THE_COST>
+    template <bool local_should_cache>
     void set_from_discrete(const t_TSP_solution_set<local_should_cache>& discrete, std::size_t n_genes) {
         const double denom = static_cast<double>(n_genes - 1);
 
         for (index_t rank = 0; rank < n_genes; ++rank) {
             const auto city = discrete.at(rank);
-            this->set(city, static_cast<value_type>(static_cast<double>(rank) / denom));
+            //this->set(city, static_cast<value_type>(static_cast<double>(rank) / denom));
+            _my_base::values[city] = static_cast<value_type>(static_cast<double>(rank) / denom);
+        }
+
+        if constexpr (should_cache) {
+            _my_base::cache.up_to_date = false;
         }
     }
 
@@ -313,7 +337,7 @@ public:
         static std::uniform_real_distribution<double> dis(0.0, 1.0);
 
         for (index_t i = 0; i < n_chromosomes; ++i) {
-            this->values[i] = dis(gen); // literatura twierdzi, że nie trzeba sprawdzać i zmieniać duplikatów - przy sortowaniu podczas dyskretyzacji duplikaty nie dadzą problemów, szczególnie że prawie nigdy nie wystąpią
+            _my_base::values[i] = dis(gen); // literatura twierdzi, że nie trzeba sprawdzać i zmieniać duplikatów - przy sortowaniu podczas dyskretyzacji duplikaty nie dadzą problemów, szczególnie że prawie nigdy nie wystąpią
         }
         
         if constexpr (should_cache) {
@@ -322,17 +346,17 @@ public:
     }
 
     distance_t _compute_cost(const TSP_Graph& graph) const {
-        return discretize(graph.n_cities())._compute_cost(graph); // dodac tu <DONT_CACHE_THE_COST?>
+        return discretize<DONT_CACHE_THE_COST>(graph.n_cities())._compute_cost(graph); // dodac tu <DONT_CACHE_THE_COST?>
     }
 
-    template <bool local_should_cache = CACHE_THE_COST>
-    auto discretize(std::size_t n_chromosomes) const { // zmienic nazwe na make_new_discrete
-        t_TSP_solution_set<local_should_cache> out(n_chromosomes);
+    template <bool local_should_cache = false>
+    auto discretize(std::size_t n_genes) const { // zmienic nazwe na make_new_discrete
+        t_TSP_solution_set<local_should_cache> out(n_genes);
 
         using my_dict = std::pair<value_type, index_t>;
-        static std::unique_ptr<my_dict[]> val_index_map = std::make_unique<my_dict[]>(n_chromosomes); // to nie moze byc static w przyszlosci
+        std::unique_ptr<my_dict[]> val_index_map = std::make_unique<my_dict[]>(n_genes); // to nie moze byc static w przyszlosci
 
-        for (index_t i = 0; i < n_chromosomes; ++i) {
+        for (index_t i = 0; i < n_genes; ++i) {
             val_index_map[i] = {this->values[i], i};
         }
 
@@ -340,9 +364,9 @@ public:
             return a.first < b.first;
         };
 
-        std::sort(val_index_map.get(), std::next(val_index_map.get(), n_chromosomes), my_dict_comparator); // pomyslec czy jest jakis algorytm sortujący dobrze radzacy sobie z tym typem danych (double od 0 do 1)
+        std::sort(val_index_map.get(), std::next(val_index_map.get(), n_genes), my_dict_comparator); // pomyslec czy jest jakis algorytm sortujący dobrze radzacy sobie z tym typem danych (double od 0 do 1)
 
-        for (index_t i = 0; i < n_chromosomes; ++i) {
+        for (index_t i = 0; i < n_genes; ++i) {
             out.set(i, static_cast<city_index_t>(val_index_map[i].second));
         }
 
@@ -350,8 +374,7 @@ public:
     }
 };
 
-    using Continous_TSP_solution_set = t_Continous_TSP_solution_set<CACHE_THE_COST>; // defaultowo cache'ujemy brak cache'owania tylko w typie dla trial vectora (powód wyżej)
-    using Continous_TSP_solution_set_no_caching = t_Continous_TSP_solution_set<DONT_CACHE_THE_COST>; // ten typ jest taki sam jak DE_continous_TSP_solution_set, ale bez cache'owania - dla trial vector'a jest to totalnie niepotrzebne, bo za każdym razem gdy obliczany jest koszt, wektor jest inny (cache'owanie nigdy nie wystąpi)
-} // namespace tsp
+    using Continous_TSP_solution_set = t_Continous_TSP_solution_set<DONT_CACHE_THE_COST>; // defaultowo cache'ujemy brak cache'owania tylko w typie dla trial vectora (powód wyżej)
+    using Continous_TSP_solution_set_caching = t_Continous_TSP_solution_set<CACHE_THE_COST>; // ten typ jest taki sam jak DE_continous_TSP_solution_set, ale bez cache'owania - dla trial vector'a jest to totalnie niepotrzebne, bo za każdym razem gdy obliczany jest koszt, wektor jest inny (cache'owanie nigdy nie wystąpi)
 
 #endif // ifndef TSP_HPP

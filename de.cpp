@@ -3,7 +3,6 @@
 #include <iostream>
 #include <iomanip>
 
-using namespace tsp;
 
 struct DE_params {
     //static constexpr unsigned NP = 1000;
@@ -11,8 +10,8 @@ struct DE_params {
     static constexpr double F = 0.7;
 };
 
-class DE_population final : public Population<Continous_TSP_solution_set, Continous_TSP_solution_set_no_caching> {
-    using _my_base = Population<Continous_TSP_solution_set, Continous_TSP_solution_set_no_caching>;
+class DE_population final : public Population<Continous_TSP_solution_set, Continous_TSP_solution_set> {
+    using _my_base = Population<Continous_TSP_solution_set, Continous_TSP_solution_set>;
     using _my_base::individual_type;
     using _my_base::trial_type;
 
@@ -24,16 +23,18 @@ class DE_population final : public Population<Continous_TSP_solution_set, Contin
     std::uniform_int_distribution<index_t> evolve_distrib_indivi_index; // przeniesc do structa "distrib"
     index_cost_pair current_best_info;
     double CR;
+    std::size_t max_iters_2opt;
 
-    static constexpr double CR_default = 0.05;
+    static constexpr double CR_default = 0.5;
 
 public:
-    DE_population(std::size_t pop_size, const TSP_Graph& graph_ref)
+    DE_population(std::size_t pop_size, const TSP_Graph& graph_ref, std::size_t max_iters_2opt)
     : _my_base(pop_size, graph_ref)
     , evolve_distrib_r(0.0, 1.0)
     , evolve_distrib_chromosome_index(0, graph_ref.n_cities() - 1)
     , evolve_distrib_indivi_index(0, pop_size - 1)
     , CR{CR_default}
+    , max_iters_2opt{max_iters_2opt}
     {
         current_best_info.make_invalid();
     }
@@ -88,10 +89,9 @@ public:
                 }
             }
 
-            // 2opt loop
             auto discrete_trial = trial.discretize<DONT_CACHE_THE_COST>(n_genes_local);
 
-            perform_2opt(discrete_trial, graph, 10);
+            perform_2opt(discrete_trial, graph, max_iters_2opt);
 
             if (discrete_trial.total_cost(graph) < x.total_cost(graph)) {
                 x.set_from_discrete<DONT_CACHE_THE_COST>(discrete_trial, n_genes_local);
@@ -113,50 +113,39 @@ public:
     }
 };
 
+int main(int argc, char** argv) { // dodac argumenty programu - sciezka do problemu, liczba ewolucji, ilosc osobnikow w populacji, max iteracji 2opt
+    ProgramArgs pargs;
+    pargs.parse_args(argc, argv);
 
-#include <chrono>
+    if (pargs.display_help) {
+        pargs.print_help();
+        return EXIT_SUCCESS;
+    }
 
-int main() {
-    // poczytac o innych formach dyskretyzacji, bardziej wydajnych dla mojego typu danych (0.0 do 1.0) (radix sort?)
+    if (pargs.problem_filename.empty()) {
+        std::cerr << "Brak pliku problemu (-file)\n";
+        pargs.print_help();
+        return EXIT_FAILURE;
+    }
 
-    /*
-        
-    */
-
-    using namespace std::chrono;
-    auto start = high_resolution_clock::now();
-
-    const TSP_Graph graph(280, "./ALL_tsp/sformatowane/a280.tsp");
+    const TSP_Graph graph(pargs.problem_filename.data());
     std::random_device rd;
     std::mt19937 mt(rd());
  
-    DE_population pop(100, graph); // liczba osobników w populacji
+    DE_population pop(pargs.pop_size, graph, pargs.max_iters_2opt);
     pop.generate_random(mt);
 
-    const auto best_start = pop.best().cost;
-
-    std::cout << "\n\n best cost: " << best_start;
-
-    for (int i = 0; i < 30; ++i) { // liczba ewolucji
+    for (std::size_t i = 0; i < pargs.n_of_evolutions; ++i) { // liczba ewolucji
         pop.evolve(mt);
-        const auto best = pop.best();
-        std::cout << "\n\n best cost: " << best.cost;
-        std::cout << "\n";
-
-        const auto& best_indiv = pop.get(best.index);
-        best_indiv.print(std::cout, pop.n_genes());
-        std::cout << '\n';
-        best_indiv.discretize(pop.n_genes()).print(std::cout, pop.n_genes());
-        std::cout << "=========\n";
     }
 
-    const auto best_end = pop.best().cost;
-    std::cout << "d: " << best_start - best_end;
+    auto best = pop.best();
 
-    auto end = high_resolution_clock::now();
-    auto duration = duration_cast<milliseconds>(end - start).count();
-
-    std::cout << "\nCzas wykonania: " << duration << " ms" << std::endl;
+    std::cout << "Najlepsza znaleziona droga:\n";
+    pop.get(best.index)
+       .discretize(pop.n_genes())
+       .print(std::cout, pop.n_genes(), "\n", true);
+    std::cout << "Koszt tej trasy: " << best.cost;
 
     return EXIT_SUCCESS;
 }

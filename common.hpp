@@ -2,8 +2,8 @@
 #define COMMON_HPP
 
 #include "tsp.hpp"
-
-using namespace tsp;
+#include <string_view>
+#include <charconv>
 
 template <typename Individual_type, typename Trial_type>
 class Population {
@@ -112,51 +112,140 @@ void perform_2opt(ChromosomeType& ch, const TSP_Graph& graph, index_t max_iters)
             };
 
     bool improved = true;
-            const index_t max_iters_2opt = max_iters;
-            index_t iters_counter = 0;
+    const index_t max_iters_2opt = max_iters;
+    index_t iters_counter = 0;
 
-            while (improved && iters_counter < max_iters_2opt) {
-                distance_t best_delta = 0;
-                static constexpr index_t invalid_best_index_ij = std::numeric_limits<index_t>::max();
-                index_t best_i = invalid_best_index_ij;
-                index_t best_j = invalid_best_index_ij;
+    while (improved && iters_counter < max_iters_2opt) {
+        distance_t best_delta = 0;
+        static constexpr index_t invalid_best_index_ij = std::numeric_limits<index_t>::max();
+        index_t best_i = invalid_best_index_ij;
+        index_t best_j = invalid_best_index_ij;
 
-                for (index_t i_2opt = 0; i_2opt < n_genes_local - 2; ++i_2opt) {
-                    for (index_t j_2opt = i_2opt + 2; j_2opt < n_genes_local - 1; ++j_2opt) {
+        for (index_t i_2opt = 0; i_2opt < n_genes_local - 2; ++i_2opt) {
+            for (index_t j_2opt = i_2opt + 2; j_2opt < n_genes_local - 1; ++j_2opt) {
 
-                        // przykład dla miast A B C D E F G:
-                        // dla i_2opt = 1 czyli indeks miasta B
-                        // dla j_2opt = 5 czyli indeks miasta F
-                        // jeśli odleglosc_miedzy(B, C)+odleglosc_miedzy(F, G) > odleglosc_miedzy(B, F)+odleglosc_miedzy(C, G):
-                        //      zamień_kolejnością(od C do F) # czyli od indeksu i_2opt+1 do j_2opt
-                        // wynik: A B F E D C G
-                        // trzeba zamienić kolejność, żeby D nadal było połączone z E, oraz E było połączone z F, tak jak przed zmianą
-                        
-                        const auto old_distance = graph.distance(ch_ptr[i_2opt], ch_ptr[i_2opt + 1])
-                                                + graph.distance(ch_ptr[j_2opt], ch_ptr[j_2opt + 1]);
+                // przykład dla miast A B C D E F G:
+                // dla i_2opt = 1 czyli indeks miasta B
+                // dla j_2opt = 5 czyli indeks miasta F
+                // jeśli odleglosc_miedzy(B, C)+odleglosc_miedzy(F, G) > odleglosc_miedzy(B, F)+odleglosc_miedzy(C, G):
+                //      zamień_kolejnością(od C do F) # czyli od indeksu i_2opt+1 do j_2opt
+                // wynik: A B F E D C G
+                // trzeba zamienić kolejność, żeby D nadal było połączone z E, oraz E było połączone z F, tak jak przed zmianą
+                
+                const auto old_distance = graph.distance(ch_ptr[i_2opt], ch_ptr[i_2opt + 1])
+                                        + graph.distance(ch_ptr[j_2opt], ch_ptr[j_2opt + 1]);
 
-                        const auto new_distance = graph.distance(ch_ptr[i_2opt], ch_ptr[j_2opt])
-                                                + graph.distance(ch_ptr[i_2opt + 1], ch_ptr[j_2opt + 1]);
+                const auto new_distance = graph.distance(ch_ptr[i_2opt], ch_ptr[j_2opt])
+                                        + graph.distance(ch_ptr[i_2opt + 1], ch_ptr[j_2opt + 1]);
 
-                        const auto distance_delta = old_distance - new_distance;
+                const auto distance_delta = old_distance - new_distance;
 
-                        if (distance_delta > best_delta) {
-                            best_delta = distance_delta;
-                            best_i = i_2opt;
-                            best_j = j_2opt;
-                        }
-                    }
+                if (distance_delta > best_delta) {
+                    best_delta = distance_delta;
+                    best_i = i_2opt;
+                    best_j = j_2opt;
                 }
-
-                if (best_delta > 0) {
-                    assert(best_i != invalid_best_index_ij && best_j != invalid_best_index_ij);
-                    swap2opt(best_i + 1, best_j); // + 1 bo 2opt działa tak, że best_i to początkowa krawedz, która jeszcze jest ok, dopiero od następnej chcemy zrobić swapa, aż do best_j (nie do best_j + 1!)
-                }
-                else {
-                    improved = false;
-                }
-                ++iters_counter;
             }
+        }
+
+        if (best_delta > 0) {
+            assert(best_i != invalid_best_index_ij && best_j != invalid_best_index_ij);
+            swap2opt(best_i + 1, best_j); // + 1 bo 2opt działa tak, że best_i to początkowa krawedz, która jeszcze jest ok, dopiero od następnej chcemy zrobić swapa, aż do best_j (nie do best_j + 1!)
+        }
+        else {
+            improved = false;
+        }
+        ++iters_counter;
+    }
 }
+
+struct ProgramArgs {
+    std::size_t pop_size = 100;
+    std::size_t n_of_evolutions = 30;
+    std::size_t max_iters_2opt = 3;
+    std::string_view problem_filename;
+    bool display_help = false;
+
+    bool is_ok() const {
+        return !problem_filename.empty();
+    }
+
+    void print_help() const {
+        std::cout
+                << "Options:\n"
+                << "  -pop=N        Rozmiar populacji (default: 100)\n"
+                << "  -evol=N       Liczba ewolucji (default: 30)\n"
+                << "  -2opt=N       Max iteracji 2-opt (default: 5)\n"
+                << "  -file=PATH    Plik problemu kompatybilny z TSPLIB (.tsp)\n";
+    }
+
+    bool is_option(std::string_view s) {
+        return !s.empty() && (s[0] == '-' || s[0] == '/');
+    }
+
+    void parse_args(int argc, char** argv) {
+    for (int i = 1; i < argc; ++i) {
+        std::string_view arg = argv[i];
+
+        // HELP
+        if (arg == "-h" || arg == "--help" || arg == "/?" || arg == "/h") {
+            display_help = true;
+            continue;
+        }
+
+        if (!is_option(arg)) {
+            std::cerr << "Ignoruje argument: " << arg << '\n';
+            continue;
+        }
+
+        // usuń prefix - / --
+        if (arg.size() >= 2 && arg[0] == '-' && arg[1] == '-') {
+            arg.remove_prefix(2);
+        } else {
+            arg.remove_prefix(1);
+        }   
+
+        // format key=value lub key:value
+        auto sep = arg.find_first_of("=:");
+        if (sep != std::string_view::npos) {
+            std::string_view key = arg.substr(0, sep);
+            std::string_view val = arg.substr(sep + 1);
+
+            if (key == "pop")
+                std::from_chars(val.data(), val.data() + val.size(), pop_size);
+            else if (key == "evol")
+                std::from_chars(val.data(), val.data() + val.size(), n_of_evolutions);
+            else if (key == "2opt")
+                std::from_chars(val.data(), val.data() + val.size(), max_iters_2opt);
+            else if (key == "file")
+                problem_filename = val;
+            else
+                std::cerr << "Nieznana opcja: " << key << '\n';
+
+            continue;
+        }
+
+        // format: -file value  /file value
+        if (i + 1 < argc) {
+            std::string_view key = arg;
+            std::string_view val = argv[++i];
+
+            if (key == "pop")
+                std::from_chars(val.data(), val.data() + val.size(), pop_size);
+            else if (key == "evol")
+                std::from_chars(val.data(), val.data() + val.size(), n_of_evolutions);
+            else if (key == "2opt")
+                std::from_chars(val.data(), val.data() + val.size(), max_iters_2opt);
+            else if (key == "file")
+                problem_filename = val;
+            else
+                std::cerr << "Nieznana opcja: " << key << '\n';
+        }
+        else {
+            std::cerr << "Brak wartosci dla opcji: " << arg << '\n';
+        }
+    }
+}
+};
 
 #endif
